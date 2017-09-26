@@ -1,0 +1,8 @@
+[package]
+name = "duplicate-finder"
+version = "0.1.0"
+authors = ["Stuart Dootson <stuart.dootson@gmail.com>"]
+
+[dependencies]
+walkdir = "^1.0"
+multimap = "^0.4"
