@@ -1,107 +1,205 @@
-extern crate multimap;
-extern crate walkdir;
+#![feature(integer_atomics)]
 
-use walkdir::WalkDir;
+#[macro_use]
+extern crate clap;
+extern crate ignore;
+extern crate multimap;
+extern crate rayon;
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use ignore::WalkBuilder;
 use multimap::MultiMap;
-use std::path::PathBuf;
 
 struct DuplicateFinder {
     all_files: MultiMap<u64, PathBuf>,
+    entry_count: usize,
 }
 
 mod detail {
-    use std::io::BufReader;
-    use std::io::prelude::*;
+    use std::collections::hash_map::DefaultHasher;
     use std::fs::File;
+    use std::hash::Hasher;
+    use std::io::prelude::*;
     use std::path::PathBuf;
 
-    fn files_are_equal(p1: &PathBuf, p2: &PathBuf) -> bool {
-        if let Ok(f1) = File::open(p1) {
-            if let Ok(f2) = File::open(p2) {
-                println!("Comparing {:?} and {:?}", p1, p2);
-                let b1 = BufReader::new(f1).bytes();
-                let b2 = BufReader::new(f2).bytes();
-                return b1.zip(b2)
-                    .all(|(read_byte1, read_byte2)| match (read_byte1, read_byte2) {
-                        (Ok(byte1), Ok(byte2)) if byte1 == byte2 => true,
-                        _ => false,
-                    });
+    use multimap::MultiMap;
+    use rayon::prelude::*;
+
+    static mut FILES_HASHED: u64 = 0;
+
+    fn get_file_hash(p: &PathBuf) -> Option<u64> {
+        if let Ok(mut f) = File::open(p) {
+            let mut bytes = Vec::new();
+            if let Ok(_) = f.read_to_end(&mut bytes) {
+                unsafe {
+                    FILES_HASHED = FILES_HASHED + 1;
+                }
+                let mut hasher = DefaultHasher::new();
+                hasher.write(bytes.as_slice());
+                return Some(hasher.finish());
             }
         }
-        false
+        None
     }
 
-    pub fn collect_duplicates(possible_dups: &Vec<PathBuf>) -> Vec<Vec<&PathBuf>> {
-        let mut duplicates: Vec<Vec<&PathBuf>> = Vec::new();
-        if possible_dups.len() > 1 {
-            duplicates.push(vec![&possible_dups[0]]);
-            possible_dups.iter().skip(1).for_each(|f1| {
-                match duplicates
-                    .iter()
-                    .position(|files2| files_are_equal(f1, &files2[0]))
-                {
-                    Some(insertion_pos) => duplicates[insertion_pos].push(f1),
-                    None => duplicates.push(vec![&f1]),
-                }
-            })
-        }
+    pub fn file_hashes() -> u64 {
+        unsafe { FILES_HASHED }
+    }
+
+    pub fn collect_duplicates_par(possible_dups: &Vec<PathBuf>) -> Vec<Vec<&PathBuf>> {
+        let duplicates_as_vec: Vec<_> = possible_dups
+            .par_iter()
+            .map(|p| get_file_hash(p).map(|h| (h, p)))
+            .filter(|o| o.is_some())
+            .map(|o| o.unwrap())
+            .collect();
+        let mut duplicates: MultiMap<u64, &PathBuf> = MultiMap::new();
+        duplicates_as_vec
+            .iter()
+            .for_each(|&(k, v)| duplicates.insert(k, v));
         duplicates
-            .into_iter()
-            .filter(|ref one_set_of_duplicates| one_set_of_duplicates.len() > 1)
+            .iter_all()
+            .filter(|&(_, ref possible_duplicates)| {
+                possible_duplicates.len() > 1
+            })
+            .map(|(_, ref possible_duplicates)| *possible_duplicates)
+            .cloned()
             .collect()
     }
 
+    pub fn collect_duplicates_seq(possible_dups: &Vec<PathBuf>) -> Vec<Vec<&PathBuf>> {
+        let mut duplicates: MultiMap<u64, &PathBuf> = MultiMap::new();
+        possible_dups.iter().for_each(|p| {
+            get_file_hash(p).map(|h| duplicates.insert(h, p));
+            ()
+        });
+        duplicates
+            .iter_all()
+            .filter(|&(_, ref possible_duplicates)| {
+                possible_duplicates.len() > 1
+            })
+            .map(|(_, ref possible_duplicates)| *possible_duplicates)
+            .cloned()
+            .collect()
+    }
 }
 
 impl DuplicateFinder {
     pub fn new() -> DuplicateFinder {
         DuplicateFinder {
             all_files: MultiMap::new(),
+            entry_count: 0,
         }
     }
-    pub fn process_entry(&mut self, entry: &walkdir::DirEntry) -> () {
-        if let Ok(metadata) = entry.metadata() {
-            if metadata.file_type().is_file() {
-                self.all_files
-                    .insert(metadata.len(), entry.path().to_path_buf());
-            }
-        }
+    pub fn process_entry(&mut self, p: &Path, s: u64) -> () {
+        self.entry_count = self.entry_count + 1;
+        self.all_files.insert(s, p.to_path_buf());
     }
-    pub fn get_duplicates(&self) -> Vec<Vec<&PathBuf>> {
-        self.all_files
-            .iter_all()
-            .filter(|&(_, ref possible_duplicates)| {
-                possible_duplicates.len() > 1
-            })
-            .flat_map(|(_, ref possible_duplicates)| {
-                detail::collect_duplicates(&possible_duplicates)
-            })
-            .collect()
+    pub fn get_entry_count(&self) -> usize {
+        self.entry_count
+    }
+    pub fn get_duplicates(&self, par: bool) -> Vec<Vec<&PathBuf>> {
+        if par {
+            self.all_files
+                .iter_all()
+                .filter(|&(_, ref possible_duplicates)| {
+                    possible_duplicates.len() > 1
+                })
+                .flat_map(|(_, ref possible_duplicates)| {
+                    detail::collect_duplicates_par(&possible_duplicates)
+                })
+                .collect()
+        } else {
+            self.all_files
+                .iter_all()
+                .filter(|&(_, ref possible_duplicates)| {
+                    possible_duplicates.len() > 1
+                })
+                .flat_map(|(_, ref possible_duplicates)| {
+                    detail::collect_duplicates_seq(&possible_duplicates)
+                })
+                .collect()
+        }
     }
 }
 
-
 fn main() {
-    let mut duplicate_finder = DuplicateFinder::new();
-    let mut files_scanned: u64 = 0;
-    for result in WalkDir::new(".") {
-        // Each item yielded by the iterator is either a directory entry or an
-        // error, so either print the path or the error.
+    let matches = clap_app!(myapp =>
+        (version: crate_version!())
+        (author: "Stuart Dootson<stuart.dootson@rolls-royce.com>")
+        (about: "Find duplicate files in directory tree(s)")
+        (@arg INPUT: +multiple +required "Set the input directory(s) to use")
+        (@arg PARALLEL: -p --parallel "Use multi-threaded engine")
+    ).get_matches();
 
-        match result {
-            Ok(entry) => {
-                duplicate_finder.process_entry(&entry);
-                files_scanned = files_scanned + 1;
+
+    if let Some(dirs) = matches.values_of("INPUT") {
+        let use_threads = matches.is_present("PARALLEL");
+        for dir in dirs {
+            let mut dir_walker = WalkBuilder::new(dir);
+            dir_walker
+                .hidden(false)
+                .git_exclude(false)
+                .git_ignore(false)
+                .git_global(false)
+                .ignore(false)
+                .parents(false);
+
+            let duplicate_finder: Arc<Mutex<DuplicateFinder>> =
+                Arc::new(Mutex::new(DuplicateFinder::new()));
+            if use_threads {
+                dir_walker.build_parallel().run(|| {
+                    let dup_finder = duplicate_finder.clone();
+                    Box::new(move |result| {
+                        if let Ok(entry) = result {
+                            if let Ok(metadata) = entry.metadata() {
+                                if metadata.file_type().is_file() {
+                                    dup_finder
+                                        .lock()
+                                        .unwrap()
+                                        .process_entry(entry.path(), metadata.len());
+                                }
+                            }
+                        }
+                        ignore::WalkState::Continue
+                    })
+                });
+            } else {
+                let mut duplicate_finder = duplicate_finder.lock().unwrap();
+                let mut files_found = std::collections::hash_set::HashSet::new();
+                for result in dir_walker.build() {
+                    // Each item yielded by the iterator is either a directory entry or an
+                    // error, so either print the path or the error.
+
+                    match result {
+                        Ok(entry) => if let Ok(metadata) = entry.metadata() {
+                            files_found.insert(entry.path().to_path_buf());
+                            if metadata.file_type().is_file() {
+                                duplicate_finder.process_entry(entry.path(), metadata.len());
+                            }
+                        },
+                        Err(err) => println!("ERROR: {}", err),
+                    }
+                }
             }
-            Err(err) => println!("ERROR: {}", err),
+            let duplicate_finder = duplicate_finder.lock().unwrap();
+            println!("{} files scanned", duplicate_finder.get_entry_count());
+            let duplicates = duplicate_finder.get_duplicates(use_threads);
+            // for duplicate_list in duplicates {
+            //     println!("[");
+            //     for duplicate in duplicate_list {
+            //         println!("  {}", duplicate.to_string_lossy());
+            //     }
+            //     println!("]");
+            // }
+            println!("{} file hashes", detail::file_hashes());
+            println!(
+                "{} duplicate groups with a total of {} files",
+                duplicates.len(),
+                duplicates.iter().fold(0, |count, ds| count + ds.len())
+            );
         }
     }
-    for duplicate_list in duplicate_finder.get_duplicates() {
-        println!("[");
-        for duplicate in duplicate_list {
-            println!("  {}", duplicate.to_string_lossy());
-        }
-        println!("]");
-    }
-    println!("{} files scanned", files_scanned);
 }
