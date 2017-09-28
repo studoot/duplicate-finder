@@ -4,8 +4,6 @@ version = "0.1.0"
 authors = ["Stuart Dootson <stuart.dootson@gmail.com>"]
 
 [dependencies]
-custom_derive = "^0.1"
-enum_derive = "^0.1"
 ignore = "^0.2"
 multimap = "^0.4"
 rayon = "^0.8"
