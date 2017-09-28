@@ -20,11 +20,8 @@ use structopt::StructOpt;
 
 mod duplicate_finder;
 use duplicate_finder::DuplicateFinder;
-
-custom_derive!{
-    #[derive(EnumFromStr)]
-    enum OutputType { CSV, JSON }
-}
+mod output;
+use output::{OutputType, Outputter, get_outputter};
 
 #[derive(StructOpt)]
 #[structopt(name = "duplicate-finder",
@@ -95,6 +92,8 @@ fn main() {
         let duplicate_finder = duplicate_finder.lock().unwrap();
         println!("{} files scanned", duplicate_finder.get_entry_count());
         let duplicates = duplicate_finder.get_duplicates(use_threads);
+
+        let outputter = get_outputter(opts.output_type);
         // for duplicate_list in duplicates {
         //     println!("[");
         //     for duplicate in duplicate_list {

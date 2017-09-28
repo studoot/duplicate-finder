@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use multimap::MultiMap;
 
+pub type Duplicates<'a> = Vec<Vec<&'a PathBuf>>;
+
 pub struct DuplicateFinder {
     all_files: MultiMap<u64, PathBuf>,
     entry_count: usize,
@@ -17,6 +19,8 @@ mod detail {
     use multimap::MultiMap;
     use rayon::prelude::*;
 
+    use duplicate_finder::Duplicates;
+
     fn get_file_hash(p: &PathBuf) -> Option<u64> {
         if let Ok(mut f) = File::open(p) {
             let mut bytes = Vec::new();
@@ -29,7 +33,7 @@ mod detail {
         None
     }
 
-    pub fn collect_duplicates_par(possible_dups: &Vec<PathBuf>) -> Vec<Vec<&PathBuf>> {
+    pub fn collect_duplicates_par(possible_dups: &Vec<PathBuf>) -> Duplicates {
         let duplicates_as_vec: Vec<_> = possible_dups
             .par_iter()
             .map(|p| get_file_hash(p).map(|h| (h, p)))
