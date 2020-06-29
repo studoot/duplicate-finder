@@ -1,12 +1,12 @@
 use std::io::Write;
 
-use duplicate_finder::Duplicates;
-use ::Outputter;
+use crate::duplicate_finder::Duplicates;
+use crate::Outputter;
 
 pub struct CsvOutputter {}
 
 impl Outputter for CsvOutputter {
-    fn output(&self, stream: &mut Write, d : &Duplicates) -> () {
+    fn output(&self, _stream: &mut dyn Write, _d : &Duplicates) -> () {
 
     }
 }

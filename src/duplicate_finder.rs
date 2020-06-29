@@ -19,7 +19,7 @@ mod detail {
     use multimap::MultiMap;
     use rayon::prelude::*;
 
-    use duplicate_finder::Duplicates;
+    use crate::duplicate_finder::Duplicates;
 
     fn get_file_hash(p: &PathBuf) -> Option<u64> {
         if let Ok(mut f) = File::open(p) {

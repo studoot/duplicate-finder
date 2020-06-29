@@ -3,7 +3,9 @@ Duplicate file finder, written in Rust
 
 Simple command-line utility that detects files with identical content within a directory tree. At present, no output is produced, but the intention is that CSV and JSON output will be produced.
 
-The tool has been written as much as a Rust learning experience as to be useful. Notably, the `-p` option was added to gain experience with concurrecncy in Rust through the [Rayon](https://github.com/nikomatsakis/rayon) library. In order to build, use a recent nightly Rust (I'm using `1.22.0-nightly (01c65cb15 2017-09-20)`) and `cargo build`.
+The tool has been written as much as a Rust learning experience as to be useful. Notably, the `-p` option was added to gain experience with concurrecncy in Rust through the [Rayon](https://github.com/nikomatsakis/rayon) library. 
+
+Tool has been build & run with rust (stable) v1.44.1.
 
 ## Usage
 ````

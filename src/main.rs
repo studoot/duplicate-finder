@@ -1,13 +1,3 @@
-#![feature(attr_literals, rustc_private)]
-
-extern crate ignore;
-extern crate multimap;
-extern crate num_cpus;
-extern crate rayon;
-extern crate structopt;
-#[macro_use]
-extern crate structopt_derive;
-
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
@@ -87,16 +77,17 @@ fn main() {
         }
         let duplicate_finder = duplicate_finder.lock().unwrap();
         println!("{} files scanned", duplicate_finder.get_entry_count());
-        let duplicates = duplicate_finder.get_duplicates(use_threads);
+        let mut duplicates = duplicate_finder.get_duplicates(use_threads);
+        duplicates.sort_by_key(|duplicate| duplicate.first().map(|&p| p.clone()));
 
-        let outputter = get_outputter(opts.output_type);
-        // for duplicate_list in duplicates {
-        //     println!("[");
-        //     for duplicate in duplicate_list {
-        //         println!("  {}", duplicate.to_string_lossy());
-        //     }
-        //     println!("]");
-        // }
+        let _outputter = get_outputter(opts.output_type);
+        for duplicate_list in &duplicates {
+            println!("[");
+            for duplicate in duplicate_list {
+                println!("  {}", duplicate.to_string_lossy());
+            }
+            println!("]");
+        }
         println!(
             "{} duplicate groups with a total of {} files",
             duplicates.len(),

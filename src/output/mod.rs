@@ -3,7 +3,7 @@ use std::io::Write;
 use std::result::Result;
 use std::str::FromStr;
 
-use duplicate_finder::Duplicates;
+use crate::duplicate_finder::Duplicates;
 
 mod csv;
 mod json;
@@ -20,10 +20,10 @@ pub enum OutputType {
 pub struct ParseOutputTypeError;
 
 pub trait Outputter {
-    fn output(&self, stream: &mut Write, d : &Duplicates) -> ();
+    fn output(&self, stream: &mut dyn Write, d : &Duplicates) -> ();
 }
 
-pub fn get_outputter(o: OutputType) -> Box<Outputter> {
+pub fn get_outputter(o: OutputType) -> Box<dyn Outputter> {
     match o {
         OutputType::CSV => Box::new(CsvOutputter {}),
         OutputType::JSON => Box::new(JsonOutputter {}),
